@@ -16,8 +16,10 @@ class DingTalkAlerter(Alerter):
     def __init__(self, rule):
         super(DingTalkAlerter, self).__init__(rule)
         self.dingtalk_access_token = self.rule.get('dingtalk_access_token', None)
-        self.dingtalk_webhook_url = 'https://oapi.dingtalk.com/robot/send?access_token=%s' % (self.dingtalk_access_token)
+        self.secret = self.rule.get('dingtalk_secret', '')                      #如果安全验证是签名模式需要带上 secretself.secret = self.rule.get('dingtalk_secret', '')                    self.dingtalk_webhook_url = 'https://oapi.dingtalk.com/robot/send?access_token=%s' % (self.dingtalk_access_token)
         self.dingtalk_msgtype = self.rule.get('dingtalk_msgtype', 'text')
+        self.at_all = self.rule.get('dingtalk_at_all', False) 
+        self.security_type = self.rule.get('dingtalk_security_type', 'keyword') #如果是sign需要传入 secret
         self.dingtalk_single_title = self.rule.get('dingtalk_single_title', 'elastalert')
         self.dingtalk_single_url = self.rule.get('dingtalk_single_url', '')
         self.dingtalk_btn_orientation = self.rule.get('dingtalk_btn_orientation', '')
@@ -25,6 +27,15 @@ class DingTalkAlerter(Alerter):
         self.dingtalk_proxy = self.rule.get('dingtalk_proxy', None)
         self.dingtalk_proxy_login = self.rule.get('dingtalk_proxy_login', None)
         self.dingtalk_proxy_password = self.rule.get('dingtalk_proxy_pass', None)
+        
+    def sign(self):
+        timestamp = str(round(time.time() * 1000))
+        secret_enc = self.secret.encode('utf-8')
+        string_to_sign = '{}\n{}'.format(timestamp, self.secret)
+        string_to_sign_enc = string_to_sign.encode('utf-8')
+        hmac_code = hmac.new(secret_enc, string_to_sign_enc, digestmod=hashlib.sha256).digest()
+        sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+        return "&timestamp={}&sign={}".format(timestamp, sign)
 
     def alert(self, matches):
         title = self.create_title(matches)
@@ -79,6 +90,8 @@ class DingTalkAlerter(Alerter):
             if self.dingtalk_btns:
                 payload['actionCard']['btns'] = self.dingtalk_btns
 
+        if self.security_type == "sign":
+            webhook_url = '%s%s' %(webhook_url , self.sign())
         try:
             response = requests.post(self.dingtalk_webhook_url, data=json.dumps(payload,
                                      cls=DateTimeEncoder), headers=headers, proxies=proxies, auth=auth)
